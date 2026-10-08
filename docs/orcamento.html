@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#fffaf8">
+  <meta name="robots" content="noindex">
+  <title>Seu orçamento</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎈</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+  <style>
+    .app { padding-bottom: 30px; }
+    .pix { background: #fff; border: 2px dashed #e7c7cc; border-radius: 14px; padding: 16px; text-align: center; }
+    .pix #qr { display: inline-block; padding: 10px; background: #fff; border-radius: 10px; margin: 8px 0; }
+    .pix textarea { width: 100%; font-size: .74rem; min-height: 64px; border: 1px solid var(--borda); border-radius: 8px; padding: 8px; word-break: break-all; }
+    .upload { display: block; border: 2px dashed var(--borda); border-radius: 14px; padding: 22px; text-align: center; cursor: pointer; background: #fff; }
+    .upload:hover { border-color: var(--prim); }
+    .opcao { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 2px solid var(--borda); border-radius: 12px; background: #fff; cursor: pointer; margin-bottom: 8px; }
+    .opcao.sel { border-color: var(--prim); background: var(--prim-claro); }
+    .opcao input { accent-color: var(--prim); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topo"><div class="bt">🎈</div><h1 id="loja">Orçamento</h1><div class="bt">🎀</div></header>
+    <main id="conteudo"><div class="spinner">Carregando…</div></main>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/comum.js"></script>
+  <script>
+  'use strict';
+  const $ = s => document.querySelector(s);
+  const token = new URLSearchParams(location.search).get('t') || '';
+  const moeda = v => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(+v || 0);
+  const dia = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }) : '';
+  const qtd = q => Number(q) % 1 === 0 ? String(Number(q)) : Number(q).toLocaleString('pt-BR');
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const toast = (m, erro) => { const t = document.createElement('div'); t.className = 'toast' + (erro ? ' erro' : ''); t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), 3500); };
+  const sb = Base.sb;
+  const foto = p => p ? sb.storage.from('produtos').getPublicUrl(p).data.publicUrl : null;
+  const r2 = v => Math.round(v * 100) / 100;
+
+  const rpc = async (fn, args) => {
+    const { data, error } = await sb.rpc(fn, args);
+    if (error) throw new Error(Base.erroAmigavel(error));
+    return data;
+  };
+  const linkWhats = (o, texto) => `https://wa.me/${o.whatsLoja || ''}?text=${encodeURIComponent(texto)}`;
+
+  let valorEscolhido = null;
+
+  async function carregar() {
+    let o;
+    try {
+      if (!sb || !/^[0-9a-f]{32}$/.test(token)) throw new Error('Orçamento não encontrado.');
+      o = await rpc('publico_orcamento', { p_token: token });
+      if (!o) throw new Error('Orçamento não encontrado.');
+    } catch (e) { $('#conteudo').innerHTML = `<div class="vazio"><span class="grande">😕</span>${esc(e.message)}</div>`; return; }
+
+    $('#loja').textContent = o.loja;
+    document.title = `Orçamento #${o.numero} · ${o.loja}`;
+    const aguardando = ['Rascunho', 'Pendente'].includes(o.status);
+    const fechado = ['Recusado', 'Cancelado'].includes(o.status);
+    const aberto = r2(o.saldo - o.valorAConfirmar);
+    const faltaSinal = r2(Math.max(0, o.sinal - o.valorPago - o.valorAConfirmar));
+    const podePagar = !fechado && aberto > 0;
+    const capa = o.itens.map(i => foto(i.foto)).find(Boolean);
+    if (valorEscolhido === null || valorEscolhido > aberto) valorEscolhido = faltaSinal > 0 && faltaSinal < aberto ? faltaSinal : aberto;
+    const pix = podePagar && o.chavePix ? Base.pixCopiaECola({ chave: o.chavePix, nome: o.nomeRecebedorPix, cidade: o.cidade, valor: valorEscolhido, txid: 'PED' + o.numero }) : null;
+
+    let msg = '';
+    if (aguardando) msg = `<p>Olá, <b>${esc(o.cliente)}</b>! 🎉 Segue seu orçamento conforme solicitado. Confira e toque em <b>Aprovar</b> para reservar a data.</p>`;
+    if (o.status === 'Aprovado' || o.status === 'EmAndamento') msg = `<div class="ok-tela" style="padding:16px 0"><div class="grande">✓</div><b>Orçamento aprovado!</b><br><span class="suave">${aberto > 0 ? 'Faça o pagamento abaixo e envie o comprovante.' : 'Tudo certo com o pagamento. 💕'}</span></div>`;
+    if (o.status === 'Finalizado') msg = `<div class="ok-tela" style="padding:16px 0"><div class="grande">🎉</div><b>Obrigada pela preferência!</b></div>`;
+    if (fechado) msg = `<div class="vazio"><span class="grande">📭</span><b>Este orçamento não está mais ativo.</b><br>Fale com a loja se quiser um novo.</div>`;
+
+    $('#conteudo').innerHTML = `
+      <div class="hero">${capa ? `<img src="${esc(capa)}" alt="">` : '🎈🎀🎂'}<span class="selo">Orçamento #${o.numero}</span></div>
+      ${msg}
+      <div class="card">
+        ${o.tipoFesta ? `<div class="linha"><span class="suave">Festa</span><b>${esc(o.tipoFesta)}</b></div>` : ''}
+        ${o.tema ? `<div class="linha"><span class="suave">Tema</span><b>${esc(o.tema)}</b></div>` : ''}
+        ${o.dataEvento ? `<div class="linha"><span class="suave">Data</span><b>${dia(o.dataEvento).replace(/^./, c => c.toUpperCase())}${o.horario ? ' · ' + esc(o.horario) : ''}</b></div>` : ''}
+        ${o.local ? `<div class="linha"><span class="suave">Local</span><span style="text-align:right">${esc(o.local)}</span></div>` : ''}
+      </div>
+      <div class="secao">Itens do orçamento</div>
+      <div class="lista">
+        ${o.itens.map(i => `<div class="li item-lista"><div class="foto g">${foto(i.foto) ? `<img src="${esc(foto(i.foto))}" alt="">` : '🎈'}</div>
+          <div class="info"><div class="forte">${esc(i.descricao)}</div><div class="suave">Qtd: ${qtd(i.quantidade)}</div></div><span class="valor">${moeda(i.subtotal)}</span></div>`).join('')}
+        ${o.taxaEntrega > 0 ? `<div class="li linha"><span class="suave">Entrega e montagem</span><span class="valor">${moeda(o.taxaEntrega)}</span></div>` : ''}
+        ${o.desconto > 0 ? `<div class="li linha"><span class="suave">Desconto</span><span class="valor">− ${moeda(o.desconto)}</span></div>` : ''}
+      </div>
+      <div class="total"><span>Total</span><strong>${moeda(o.total)}</strong></div>
+      ${o.sinalPercentual > 0 && o.sinalPercentual < 100 && !fechado ? `<div class="linha suave"><span>Sinal para reservar a data (${String(o.sinalPercentual).replace('.', ',')}%)</span><b>${moeda(o.sinal)}</b></div>` : ''}
+      ${o.valorPago > 0 ? `<div class="linha"><span>Já pago</span><span class="valor" style="color:var(--verde)">${moeda(o.valorPago)}</span></div>` : ''}
+      ${o.valorAConfirmar > 0 ? `<div class="aviso" style="margin-top:10px">🧾 Recebemos seu comprovante de ${moeda(o.valorAConfirmar)}. Estamos conferindo!</div>` : ''}
+      ${o.observacoes ? `<div class="card" style="margin-top:12px"><div class="forte">Observações</div><div class="suave">${esc(o.observacoes)}</div></div>` : ''}
+
+      ${aguardando ? `<div class="botoes"><button class="btn bloco verde" id="aprovar">✔ Aprovar orçamento</button><button class="btn bloco claro" id="recusar">Não vou seguir agora</button></div>
+        <p class="suave" style="text-align:center">Qualquer dúvida, estamos à disposição! 💕</p>` : ''}
+
+      ${!aguardando && podePagar ? `
+        <div class="secao">💳 Pagamento</div>
+        ${faltaSinal > 0 && faltaSinal < aberto ? `
+          <label class="opcao ${valorEscolhido === faltaSinal ? 'sel' : ''}"><input type="radio" name="v" value="${faltaSinal}" ${valorEscolhido === faltaSinal ? 'checked' : ''}><div><b>Pagar o sinal — ${moeda(faltaSinal)}</b><div class="suave">Reserva a data; o restante até o dia da festa</div></div></label>
+          <label class="opcao ${valorEscolhido === aberto ? 'sel' : ''}"><input type="radio" name="v" value="${aberto}" ${valorEscolhido === aberto ? 'checked' : ''}><div><b>Pagar tudo — ${moeda(aberto)}</b><div class="suave">Quita o orçamento</div></div></label>` : ''}
+        ${pix ? `<div class="pix">
+            <div class="forte">PIX de ${moeda(valorEscolhido)}</div><div id="qr"></div>
+            <div class="suave" style="margin-bottom:6px">PIX copia e cola</div>
+            <textarea readonly id="pixCod">${esc(pix)}</textarea>
+            <button class="btn bloco" id="copiarPix" style="margin-top:8px">📋 Copiar código PIX</button>
+            <div class="suave" style="margin-top:8px">Chave: <b>${esc(o.chavePix)}</b></div></div>`
+          : `<div class="aviso">Combine a forma de pagamento com a loja pelo WhatsApp.</div>`}
+        <div class="secao">🧾 Enviar comprovante</div>
+        <label class="upload"><input type="file" id="arquivo" accept="image/*,application/pdf" hidden>
+          <div style="font-size:2rem">📎</div><b id="nomeArq">Toque para escolher a foto ou PDF</b></label>
+        <button class="btn bloco verde" id="enviarComp" style="margin-top:10px" disabled>Enviar comprovante</button>
+        <div class="suave" style="text-align:center;margin:14px 0 8px">ou</div>
+        <a class="btn bloco claro" href="${linkWhats(o, `Olá! Segue o comprovante do orçamento #${o.numero} (${moeda(valorEscolhido)}):`)}">Enviar o comprovante pelo WhatsApp</a>` : ''}
+
+      ${!aguardando && !podePagar && !fechado ? `<div class="botoes"><a class="btn bloco verde" href="${linkWhats(o, `Olá! Sobre o orçamento #${o.numero}:`)}">🟢 Falar com a loja no WhatsApp</a></div>` : ''}`;
+
+    const on = (s, f) => { const el = $(s); if (el) el.onclick = f; };
+    on('#aprovar', async () => { try { await rpc('publico_aprovar', { p_token: token }); toast('Orçamento aprovado! Obrigada 💕'); carregar(); } catch (e) { toast(e.message, true); } });
+    on('#recusar', async () => {
+      const motivo = prompt('Quer contar o motivo? (opcional)');
+      if (motivo === null) return;
+      try { await rpc('publico_recusar', { p_token: token, p_motivo: motivo }); carregar(); } catch (e) { toast(e.message, true); }
+    });
+    document.querySelectorAll('[name=v]').forEach(r => r.onchange = () => { valorEscolhido = +r.value; carregar(); });
+    on('#copiarPix', () => { const t = $('#pixCod'); t.select(); (navigator.clipboard?.writeText(t.value) || Promise.reject()).then(() => toast('Código PIX copiado!'), () => { document.execCommand('copy'); toast('Código PIX copiado!'); }); });
+    if ($('#qr') && window.QRCode && pix) new QRCode($('#qr'), { text: pix, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
+
+    const arq = $('#arquivo');
+    if (arq) {
+      arq.onchange = () => { $('#nomeArq').textContent = arq.files[0]?.name || 'Toque para escolher a foto ou PDF'; $('#enviarComp').disabled = !arq.files.length; };
+      on('#enviarComp', async () => {
+        const f = arq.files[0];
+        const tipos = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'application/pdf': 'pdf' };
+        if (!tipos[f.type] || f.size > 10 * 1024 * 1024) return toast('Envie uma foto (JPG/PNG) ou PDF de até 10 MB.', true);
+        const b = $('#enviarComp'); b.disabled = true; b.textContent = 'Enviando…';
+        try {
+          const caminho = `${token}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${tipos[f.type]}`;
+          const up = await sb.storage.from('comprovantes').upload(caminho, f, { contentType: f.type });
+          if (up.error) throw new Error('Não foi possível enviar o arquivo. Tente novamente.');
+          await rpc('publico_comprovante', { p_token: token, p_path: caminho, p_mime: f.type, p_valor: valorEscolhido });
+          concluido(o, valorEscolhido);
+        } catch (e) { toast(e.message, true); b.disabled = false; b.textContent = 'Enviar comprovante'; }
+      });
+    }
+  }
+
+  function concluido(o, valor) {
+    const texto = `Olá! Acabei de enviar o comprovante do orçamento #${o.numero} (${moeda(valor)}) pelo link. 😊`;
+    $('#conteudo').innerHTML = `<div class="ok-tela" style="padding-top:40px"><div class="grande">✓</div>
+      <h2 style="color:var(--vinho);margin:8px 0">Comprovante enviado!</h2>
+      <p>A <b>${esc(o.loja)}</b> já recebeu e vai confirmar o pagamento.</p>
+      <p class="suave" id="contagem">Voltando para o WhatsApp em <b>3</b>…</p></div>
+      <div class="botoes"><a class="btn bloco verde" href="${linkWhats(o, texto)}">🟢 Voltar para o WhatsApp</a><button class="btn bloco claro" id="ficar">Ficar nesta página</button></div>`;
+    let n = 3;
+    const t = setInterval(() => {
+      if (--n > 0) { $('#contagem').innerHTML = `Voltando para o WhatsApp em <b>${n}</b>…`; return; }
+      clearInterval(t); location.href = linkWhats(o, texto);
+    }, 1000);
+    $('#ficar').onclick = () => { clearInterval(t); valorEscolhido = null; carregar(); };
+  }
+  carregar();
+  </script>
+</body>
+</html>
