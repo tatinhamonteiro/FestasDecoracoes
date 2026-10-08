@@ -1,11 +1,4 @@
-// =====================================================================
-//  Configuração do Supabase (Project Settings → API Keys → aba "Legacy")
-//    - Project URL        → supabaseUrl
-//    - anon / public key  → supabaseAnonKey  (começa com eyJ...)
-//  A chave "anon" é pública por natureza: a segurança fica nas regras
-//  (RLS) do supabase/schema.sql. NUNCA coloque aqui a "service_role".
-// =====================================================================
 window.APP_CONFIG = {
-  supabaseUrl: 'https://SEU-PROJETO.supabase.co',
-  supabaseAnonKey: 'COLE-AQUI-A-CHAVE-ANON',
+  supabaseUrl: 'https://icnmufdorlorrguqhjcc.supabase.co',
+  supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imljbm11ZmRvcmxvcnJndXFoamNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0Nzc3MjMsImV4cCI6MjEwNzA1MzcyM30.AyS8S7RmDI99DllaDCChoYNZv1XqkdpVlQEMNKgvQc4',
 };
