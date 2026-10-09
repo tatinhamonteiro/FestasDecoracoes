@@ -1,0 +1,8 @@
+{
+  // Publica a pasta "docs" como site estático no Cloudflare (Workers + Static Assets)
+  "name": "festasdecoracoes",
+  "compatibility_date": "2025-06-01",
+  "assets": {
+    "directory": "./docs"
+  }
+}
