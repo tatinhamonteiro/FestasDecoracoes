@@ -8,6 +8,7 @@ const DB = (() => {
   const falha = m => { throw new Error(m); };
   const SEL = '*, clientes(nome, telefone), orcamento_itens(*), pagamentos(*)';
   const ATIVOS = ['Aprovado', 'EmAndamento'];
+  let lojaId = null; // registro da loja da conta logada
 
   const fotoUrl = p => p ? sb.storage.from('produtos').getPublicUrl(p).data.publicUrl : null;
 
@@ -79,10 +80,10 @@ const DB = (() => {
       if (r.error) throw new Error(Base.erroAmigavel(r.error));
       if (criar && !r.data.session) return 'confirmar';
       const membro = ok(await sb.rpc('entrar_na_loja'));
-      if (!membro) { await sb.auth.signOut(); falha('Esta conta não tem acesso à loja. Peça para a dona liberar.'); }
+      if (!membro) { await sb.auth.signOut(); falha('Não foi possível abrir a loja desta conta. Tente novamente.'); }
       return 'ok';
     },
-    sair: () => sb.auth.signOut(),
+    sair: () => { lojaId = null; return sb.auth.signOut(); },
     async trocarSenha(atual, nova) {
       if (!nova || nova.length < 6) falha('A nova senha precisa ter pelo menos 6 caracteres.');
       const s = await this.sessao();
@@ -95,7 +96,11 @@ const DB = (() => {
     },
 
     // ---------- loja ----------
-    async loja() { return ok(await sb.from('loja_config').select('*').eq('id', 1).single()); },
+    async loja() {
+      ok(await sb.rpc('entrar_na_loja')); // garante que a conta tem a própria loja
+      lojaId = ok(await sb.from('lojas').select('*').single());
+      return lojaId;
+    },
     async salvarLoja(l) {
       if (!l.nome?.trim()) falha('Informe o nome da loja.');
       let tel = '';
@@ -107,10 +112,10 @@ const DB = (() => {
       if (url && !/^https?:\/\/\S+$/i.test(url)) falha('Endereço público inválido.');
       const pct = Number(String(l.sinal_percentual).replace(',', '.'));
       if (!(pct >= 0 && pct <= 100)) falha('Sinal deve ser entre 0 e 100%.');
-      ok(await sb.from('loja_config').update({
+      ok(await sb.from('lojas').update({
         nome: l.nome.trim(), telefone_whatsapp: tel, chave_pix: (l.chave_pix || '').trim(),
         nome_recebedor_pix: (l.nome_recebedor_pix || '').trim(), cidade: (l.cidade || '').trim(), url_publica: url, sinal_percentual: pct,
-      }).eq('id', 1));
+      }).eq('id', lojaId.id));
     },
     linkCliente: (l, token) => `${Base.baseSite(l.url_publica)}/orcamento.html?t=${token}`,
 
@@ -147,7 +152,7 @@ const DB = (() => {
       const preco = r2(String(p.preco).replace(',', '.')), custo = r2(String(p.custo || 0).replace(',', '.'));
       if (preco < 0 || custo < 0) falha('Valores não podem ser negativos.');
       const dados = { nome: p.nome.trim(), categoria: p.categoria || 'Outros', descricao: p.descricao?.trim() || null, preco, custo, ativo: p.ativo !== false };
-      if (arquivo && arquivo.size) dados.foto_path = await enviarArquivo('produtos', 'fotos', arquivo, IMG, 5);
+      if (arquivo && arquivo.size) dados.foto_path = await enviarArquivo('produtos', String(lojaId?.id || (await this.loja()).id), arquivo, IMG, 5);
       if (id) { ok(await sb.from('produtos').update(dados).eq('id', id)); return id; }
       return ok(await sb.from('produtos').insert(dados).select('id').single()).id;
     },
